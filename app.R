@@ -105,7 +105,7 @@ ui <- fluidPage(
                        hr(),
                        dataTableOutput('table1')),
               tabPanel("Analysis2", 
-                       h3("What kind of analysis2"),
+                       h3("Frequency of Top Words"),
                        plotOutput("histogram"),
                        hr(),
                        verbatimTextOutput('table2'))
@@ -186,7 +186,7 @@ server <- function(input, output) {
     # replace the code below with your code!!!
     ggplot(data = dat_freq(), aes(x = words, y = Freq, fill = Freq)) +
       geom_col() +
-      scale_fill_gradient(low='#F0F2F0', high='#000C40')
+      scale_fill_gradient(low='#1f4037', high='#7CC4A2')
   })
   
   # code for statistics
