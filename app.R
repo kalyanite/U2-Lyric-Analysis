@@ -12,6 +12,8 @@
 # ===============================================
 library(tidyverse)
 library(tidytext)
+library(shinyWidgets)
+library(ggrepel)
 
 # ===============================================
 # Import data
@@ -29,7 +31,7 @@ ui <- fluidPage(
   titlePanel("U2 Song Lyric Analysis - Kalyan Sankar"),
   fluidRow(
     # replace with your widgets
-    column(3,
+    column(6,
            p(em("Word Trend Analysis")),
            textInput(inputId = "wordtrend1", 
                         label = "Choose six words", 
@@ -52,13 +54,13 @@ ui <- fluidPage(
     ),
     
     # replace with your widgets
-    column(3,
+    column(6,
            p(em('Word Frequency Analysis')),
            sliderInput(inputId = "num_freq", 
                        label = "Number of Words",
                        min = 1,
                        max = 20,
-                       value = 5,
+                       value = 15,
                        step = 1),
            selectInput(inputId = 'album',
                        label = "Album",
@@ -68,47 +70,29 @@ ui <- fluidPage(
                       ),
            checkboxInput(inputId = 'facet',
                          label = 'Facet by Album',
-                         value = FALSE)
-    ),
-    
-    # replace with your widgets
-    column(3,
-           p(em("Input widgets")),
-           radioButtons(inputId = "arrange", 
-                        label = "Order bars by:", 
-                        choices = c("decreasing freq" = "arr_dec",
-                                    "increasing freq" = "arr_inc",
-                                    "alphabetical a-z" = "arr_a2z",
-                                    "alphabetical z-a" = "arr_z2a"),
-                        selected = "arr_dec")
-    ),
-    
-    # replace with your widgets
-    column(3,
-           p(em("Input widgets")),
-           sliderInput(inputId = "binwidth",
-                       label = "Binwidth",
-                       min = 1,
-                       max = 20,
-                       value = 1),
-           checkboxInput(inputId = "facets",
-                         label = strong("Facet by letter"),
-                         value = FALSE)
-    )
-  ),
-  hr(),
-  
+                         value = FALSE),
+           checkboxInput(inputId = 'stopword',
+                         label = 'Exclude Stopwords',
+                         value = FALSE)),
+  hr()),
   tabsetPanel(type = "tabs",
               tabPanel("Analysis1",
                        h3("What kind of analysis1?"),
                        plotOutput("barplot"),
+                       fluidRow(
+                         column(12, align = 'center',
+                                sliderTextInput(inputId = 'time',
+                                                label = NULL,
+                                                choices = unique(dat$year),
+                                                width = validateCssUnit('85%'),
+                                                selected = 2017))),
                        hr(),
                        dataTableOutput('table1')),
               tabPanel("Analysis2", 
-                       h3("Frequency of Top Words"),
+                       h3("What kind of analysis2"),
                        plotOutput("histogram"),
                        hr(),
-                       verbatimTextOutput('table2'))
+                       dataTableOutput('table2'))
   )
 )
 
@@ -128,15 +112,15 @@ server <- function(input, output) {
     #for (i in words){
     #  dat = dat %>% summarise(paste0)
     #}
-    dat %>% group_by(year) %>% summarise('wordtrend1' = str_count(lyrics, pattern = input$wordtrend1) %>% sum(),
+    dat_trend = dat %>% group_by(year) %>% summarise('wordtrend1' = str_count(lyrics, pattern = input$wordtrend1) %>% sum(),
                                          'wordtrend2' = str_count(lyrics, pattern = input$wordtrend2) %>% sum(),
                                          'wordtrend3' = str_count(lyrics, pattern = input$wordtrend3) %>% sum(),
                                          'wordtrend4' = str_count(lyrics, pattern = input$wordtrend4) %>% sum(),
                                          'wordtrend5' = str_count(lyrics, pattern = input$wordtrend5) %>% sum(),
                                          'wordtrend6' = str_count(lyrics, pattern = input$wordtrend6) %>% sum())
     #colnames(dat) = c('year', paste('wordtrend', 1:6))
-    dat = pivot_longer(
-      dat,
+    dat_trend = pivot_longer(
+      dat_trend,
       cols = starts_with('wordtrend'),
       names_to = 'words',
       values_to = 'freq')
@@ -145,17 +129,26 @@ server <- function(input, output) {
   # Analysis 1: Word Frequency Analysis
   # Create data frame with frequency of each word
   dat_freq <- reactive({
-      freq = dat$lyrics %>% 
-             tolower() %>% 
-             str_split('\\s+') %>% 
-             unlist() %>%
-             table() %>%
-             sort(decreasing = TRUE) %>%
-             head(input$num_freq)
-      freq = freq %>%
-        t() %>%
-        as.data.frame()
-      freq = select(freq, 'words' = ., Freq)
+    dat_freq = dat
+    if(input$album != 'all'){
+      dat_freq = filter(dat, album == input$album)
+    }
+    lyrics = data.frame(text = dat_freq$lyrics)
+    freq = lyrics %>% 
+      unnest_tokens(output = word, input = text)
+    if(input$stopword){
+      freq = freq %>% anti_join(stop_words, by = 'word')
+    }
+    if(input$facet){
+      freq = freq %>% count(word, album)
+    }
+    else{
+      freq = freq %>% count(word)
+    }
+    freq = freq %>%
+      arrange(desc(n)) %>%
+      slice_head(n = input$num_freq)
+
   })
   
   
@@ -166,14 +159,24 @@ server <- function(input, output) {
   # code for barplot
   output$barplot <- renderPlot({
     # replace the code below with your code!!!
-    ggplot(data = dat_trend(), aes(x = year, y = freq, group = word)) +
-      geom_path()
+    current_year = dat_trend() %>% filter(year == input$time)
+    ggplot(data = dat_trend(), aes(x = year, y = freq, color = words)) +
+      geom_path() + 
+      geom_point(data = current_year) +
+      geom_text_repel(data = current_year, aes(label = freq)) +
+      scale_color_hue(labels = c(input$wordtrend1, 
+                                 input$wordtrend2, 
+                                 input$wordtrend3, 
+                                 input$wordtrend4, 
+                                 input$wordtrend5, 
+                                 input$wordtrend6)) +
+      xlab('Year') + ylab('Frequency') +
+      xlim(NA, input$time) + expand_limits(x=2017)
   })
   
   # code for numeric summaries of frequencies
   output$table1 <- renderDataTable({
-    # replace the code below with your code!!!
-    dat_trend()
+    dat_trend()$ %>% 
   })
   
   
@@ -184,14 +187,18 @@ server <- function(input, output) {
   # code for histogram
   output$histogram <- renderPlot({
     # replace the code below with your code!!!
-    ggplot(data = dat_freq(), aes(x = words, y = Freq, fill = Freq)) +
+    plot = ggplot(data = dat_freq(), aes(x = reorder(word, -n), y = n, fill = n)) +
       geom_col() +
-      scale_fill_gradient(low='#1f4037', high='#7CC4A2')
-  })
+      scale_fill_gradient(low='#1f4037', high='#7CC4A2') +
+      xlab('Words') + ylab('Count')
+    if(input$facet) {
+      plot = plot + facet_wrap(~album)
+    }
+    plot
+    })
   
   # code for statistics
-  output$table2 <- renderPrint({
-    # replace the code below with your code!!!
+  output$table2 <- renderDataTable({
     dat_freq()
   })
   
